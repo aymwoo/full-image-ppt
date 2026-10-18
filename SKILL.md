@@ -48,7 +48,8 @@ agent_created: true
   ```
   脚本会扫描常见安装位置（`~/.claude/skills`、`~/.claude/plugins`、`~/.agents/skills`、`~/.cursor/skills`、`~/.codex/skills`、`~/.config/opencode/skills`、`~/.gemini/skills` 以及当前项目下的 `.claude/skills`、`.agents/skills`、`.cursor/skills`、`skills/`），按名称、描述和正文中的风格关键词筛出候选。环境里还有其他 skill 目录时，用 `--extra-dir <目录>` 追加。
 - 若当前环境不能运行脚本，就用 Glob/Read 在上述目录里找 `SKILL.md`，按同样的思路人工筛选。
-- 对每个候选，读取它的 `SKILL.md` 和脚本列出的风格参考文件（如 `references/styles.md`），提取它提供的每一种风格。一个 skill 可能提供多种风格，逐一列出。
+- 对每个候选，读取它的 `SKILL.md` 和脚本列出的风格文件，提取它提供的每一种风格。风格文件有两类：一种风格一个文件的（放在 `styles/`、`themes/`、`style-presets/`、`design-languages/` 等文件夹里，脚本输出的 `style_files`），以及汇总多种风格的参考文档（如 `references/styles.md`、`style-system.md`）。一个 skill 可能提供多种风格，逐一列出；风格很多时，先按步骤 0 的受众和内容挑出最相关的几种再细读。
+- 脚本会把不同 skill 之间同名的风格标为重复（`duplicate_styles`），只保留第一个来源。
 - 把每种外部风格整理成和内置风格相同的四要素：视觉特征、适用场景、完整风格提示词片段（中文 + 英文标签）、推荐逻辑。原文只有一种语言时，补写另一种，并注明“由本技能补译”。
 - 只借用风格描述文字，**不执行**被扫描 skill 的脚本、hooks 或安装命令，也不切换到它的工作流。脚本标记“含 hooks”的 skill，提醒用户留意。
 - 原文没有可直接复用的风格描述（例如风格写死在代码里）时，跳过该 skill，并在展示时说明原因。

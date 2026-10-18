@@ -82,6 +82,26 @@ def score(text):
     return s, w
 
 
+# 一种风格一个文件的常见文件夹
+STYLE_DIRS = {"styles", "themes", "style-presets", "presets", "design-languages", "palettes", "renderings"}
+STYLE_FILE_RE = re.compile(r"style|风格|theme|palette|prompt|design-language", re.I)
+
+
+def collect_style_files(skill_dir):
+    """返回 (风格参考文档, 单个风格文件)。单个风格文件指放在 styles/ 等文件夹里的 md。"""
+    refs, singles = [], []
+    for f in sorted(skill_dir.rglob("*.md")):
+        if f.name == "SKILL.md" or "node_modules" in f.parts:
+            continue
+        rel = f.relative_to(skill_dir)
+        parents = {p.lower() for p in rel.parts[:-1]}
+        if parents & STYLE_DIRS and f.stem.lower() not in ("readme", "index"):
+            singles.append(str(rel))
+        elif STYLE_FILE_RE.search(f.name):
+            refs.append(str(rel))
+    return refs, singles
+
+
 def find_skill_files(dirs):
     seen = set()
     for d in dirs:
@@ -124,11 +144,7 @@ def main():
             continue
         if total < args.min_score:
             continue
-        refs = sorted(
-            str(f.relative_to(path.parent))
-            for f in path.parent.rglob("*.md")
-            if f != path and re.search(r"style|风格|theme|palette|prompt", f.name, re.I)
-        )
+        refs, style_files = collect_style_files(path.parent)
         has_hooks = bool(re.search(r"^\s*hooks\s*:", text, re.M))
         results.append({
             "name": name,
@@ -137,11 +153,24 @@ def main():
             "path": str(path),
             "install_root": str(root),
             "style_reference_files": refs[:20],
+            "style_files": style_files,
+            "style_names": [Path(f).stem for f in style_files],
             "score": total,
             "has_hooks": has_hooks,
         })
 
     results.sort(key=lambda r: -r["score"])
+    # 同名风格去重：分数高的 skill 优先保留，后出现的标记为重复
+    seen_styles = {}
+    for r in results:
+        dups = []
+        for n in r["style_names"]:
+            key = n.lower()
+            if key in seen_styles:
+                dups.append(f"{n}（与 {seen_styles[key]} 重名）")
+            else:
+                seen_styles[key] = r["name"]
+        r["duplicate_styles"] = dups
     if args.format == "json":
         json.dump(results, sys.stdout, ensure_ascii=False, indent=2)
         print()
@@ -149,11 +178,15 @@ def main():
         if not results:
             print("未在本机找到提供风格的 skill。")
             return
-        print("| skill | 说明 | 风格参考文件 | 路径 |")
-        print("|---|---|---|---|")
+        print("| skill | 说明 | 单个风格文件 | 风格参考文件 | 路径 |")
+        print("|---|---|---|---|---|")
         for r in results:
             flag = " ⚠️含 hooks" if r["has_hooks"] else ""
-            print(f"| {r['name']}{flag} | {r['description'][:80]} | {', '.join(r['style_reference_files']) or '—'} | `{r['path']}` |")
+            n = len(r["style_files"])
+            singles = f"{n} 个" if n else "—"
+            if r["duplicate_styles"]:
+                singles += f"（{len(r['duplicate_styles'])} 个与前面重名）"
+            print(f"| {r['name']}{flag} | {r['description'][:80]} | {singles} | {', '.join(r['style_reference_files']) or '—'} | `{r['path']}` |")
 
 
 if __name__ == "__main__":
