@@ -47,6 +47,13 @@ WEAK = [
     "gpt-image", "imagen", "dall", "flux", "render", "poster", "infographic", "slide", "ppt",
 ]
 
+# 必要信号：名称或描述里要和"出图/画面"有关，否则只是网页 UI 或文档主题类 skill
+IMAGE = [
+    "生图", "图像", "图片", "插画", "配图", "绘画", "画风", "手绘", "漫画", "海报", "封面", "信息图", "幻灯片图",
+    "image", "illustrat", "drawing", "drawn", "painting", "comic", "manga", "poster", "cover",
+    "infographic", "artwork", "art style", "picture", "visual card", "slide deck image",
+]
+
 FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
 
 
@@ -55,10 +62,16 @@ def parse_frontmatter(text):
     meta = {}
     if not m:
         return meta, text
+    key = None
     for line in m.group(1).splitlines():
-        if ":" in line and not line.startswith(" "):
+        if line and not line[0].isspace() and ":" in line:
             k, v = line.split(":", 1)
-            meta[k.strip()] = v.strip().strip('"').strip("'")
+            key = k.strip()
+            v = v.strip()
+            meta[key] = "" if v in (">", ">-", "|", "|-") else v.strip('"').strip("'")
+        elif key and line.strip():
+            # 多行（折叠）值
+            meta[key] = (meta[key] + " " + line.strip()).strip()
     return meta, text[m.end():]
 
 
@@ -104,6 +117,9 @@ def main():
         head_s, head_w = score(name + " " + desc)
         body_s, body_w = score(body[:20000])
         total = head_s * 2 + head_w * 2 + min(body_s, 15) + min(body_w, 5)
+        head_low = (name + " " + desc).lower()
+        if not any(k.lower() in head_low for k in IMAGE):
+            continue
         if head_s == 0 and body_s < 6:
             continue
         if total < args.min_score:
