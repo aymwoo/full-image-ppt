@@ -58,6 +58,16 @@ python scripts/scan_style_skills.py --format md
 python scripts/scan_style_skills.py --extra-dir /path/to/other/skills
 ```
 
+## 更新记录
+
+- **v1.1.1**
+  - 提示词模板的参数总览表增加"风格来源 skill"和"风格来源路径"两行。
+  - 每页提示词放进单独的代码块，页名只留在小标题里，避免被画成图上的标题；只画"核心信息"里列出的文字。
+  - 生图后逐张检查，文字乱码、构图崩坏或多出 ✕/✓ 等符号的页面重新生成（每页最多 2 次），仍有问题的页面告诉用户。
+  - `build_deck.py`：不是 16:9 的图片居中裁切后缩放到 1920×1080，不再拉伸；PDF 页面改为与 pptx 相同的 13.333″×7.5″，新增 `--pdf-quality`（默认 95），文字更清晰。
+  - 工作流不再写死 AskUserQuestion、present_files 等特定工具名，换成通用说法。
+- **v1.1.0**：选风格前扫描本机已安装的风格类 skill，把它们的风格加入候选。
+
 ## 来源
 
 本技能同时发布在 SkillHub：<https://skillhub.cn/skills/user_37fa416d/full-image-ppt>

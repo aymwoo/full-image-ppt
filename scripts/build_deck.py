@@ -2,14 +2,15 @@
 """由一组全图（page_01.png ...）生成 全图演示文稿.pptx 与 .pdf。
 
 用法:
-  python build_deck.py --input <图片目录> [--output <输出目录>] [--prefix page] [--name 全图演示文稿] [--dpi 150]
+  python build_deck.py --input <图片目录> [--output <输出目录>] [--prefix page] [--name 全图演示文稿] [--pdf-quality 95]
 
 依赖: python-pptx, Pillow
   pip install python-pptx Pillow
 
 说明:
   - pptx: 每页为一整张铺满画面的图片（16:9，13.333"×7.5"），无占位符。
-  - pdf: 由同一批图片按页生成的高清 PDF。
+  - pdf: 由同一批图片按页生成的高清 PDF，页面尺寸与 pptx 一致（13.333"×7.5"）。
+  - 非 1920×1080 的图片先居中裁成 16:9，再缩放到 1920×1080，不拉伸变形。
   - 图片按前缀后的数字顺序排序（page_01.png < page_02.png ...）。
 """
 import argparse
@@ -17,6 +18,7 @@ import glob
 import os
 import re
 import sys
+import tempfile
 
 try:
     from pptx import Presentation
@@ -44,6 +46,42 @@ def sorted_pages(input_dir, prefix):
     return sorted(files, key=key)
 
 
+TARGET_W, TARGET_H = 1920, 1080
+SLIDE_W_IN = 13.333
+
+
+def fit_16x9(im):
+    """居中裁成 16:9，再缩放到 1920×1080；已是 1920×1080 的原样返回。"""
+    im = im.convert("RGB")
+    if im.size == (TARGET_W, TARGET_H):
+        return im
+    w, h = im.size
+    ratio = TARGET_W / TARGET_H
+    if w / h > ratio:  # 偏宽：裁左右
+        nw = round(h * ratio)
+        left = (w - nw) // 2
+        im = im.crop((left, 0, left + nw, h))
+    elif w / h < ratio:  # 偏高：裁上下
+        nh = round(w / ratio)
+        top = (h - nh) // 2
+        im = im.crop((0, top, w, top + nh))
+    return im.resize((TARGET_W, TARGET_H), Image.LANCZOS)
+
+
+def normalize_pages(pages, work_dir):
+    """把每张图规范为 1920×1080 PNG，返回新路径列表；尺寸不对的会打印提示。"""
+    out = []
+    for i, p in enumerate(pages, 1):
+        with Image.open(p) as im:
+            if im.size != (TARGET_W, TARGET_H):
+                print(f"提示：{os.path.basename(p)} 为 {im.size[0]}×{im.size[1]}，已居中裁切并缩放到 1920×1080")
+            fixed = fit_16x9(im)
+        dst = os.path.join(work_dir, f"page_{i:03d}.png")
+        fixed.save(dst)
+        out.append(dst)
+    return out
+
+
 def build_pptx(pages, out_path):
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -51,17 +89,15 @@ def build_pptx(pages, out_path):
     blank = prs.slide_layouts[6]  # 完全空白版式
     for img in pages:
         slide = prs.slides.add_slide(blank)
-        # 铺满整页（拉伸以彻底无黑边；图片应为 16:9，否则按比例拉伸）
+        # 图片已规范为 1920×1080（16:9），铺满整页且不变形
         slide.shapes.add_picture(img, 0, 0, width=prs.slide_width, height=prs.slide_height)
     prs.save(out_path)
 
 
-def build_pdf(pages, out_path, dpi=150):
-    imgs = []
-    for p in pages:
-        im = Image.open(p).convert("RGB")
-        im.info["dpi"] = (dpi, dpi)
-        imgs.append(im)
+def build_pdf(pages, out_path, quality=95):
+    # 分辨率按 1920px / 13.333" 计算，使 PDF 页面与 pptx 同为 13.333"×7.5"
+    dpi = TARGET_W / SLIDE_W_IN
+    imgs = [Image.open(p).convert("RGB") for p in pages]
     if not imgs:
         sys.exit("未找到任何图片，无法生成 PDF。")
     first = imgs[0]
@@ -71,6 +107,8 @@ def build_pdf(pages, out_path, dpi=150):
         save_all=True,
         append_images=imgs[1:],
         resolution=dpi,
+        quality=quality,  # Pillow 以 JPEG 写入 PDF，默认质量约 75，这里调高
+        subsampling=0,  # 不做色度抽样，文字边缘更清晰
     )
 
 
@@ -80,7 +118,8 @@ def main():
     ap.add_argument("--output", default=".", help="输出目录，默认当前目录")
     ap.add_argument("--prefix", default="page", help="图片前缀，如 page_01.png 的前缀 page")
     ap.add_argument("--name", default="全图演示文稿", help="输出文件名（不含扩展名）")
-    ap.add_argument("--dpi", type=int, default=150, help="PDF 分辨率，默认 150")
+    ap.add_argument("--pdf-quality", type=int, default=95, help="PDF 内图片的 JPEG 质量（1–100），默认 95")
+    ap.add_argument("--dpi", type=int, help=argparse.SUPPRESS)  # 旧参数，已不再使用，保留以兼容旧命令
     args = ap.parse_args()
 
     pages = sorted_pages(args.input, args.prefix)
@@ -91,14 +130,17 @@ def main():
     pptx_path = os.path.join(args.output, args.name + ".pptx")
     pdf_path = os.path.join(args.output, args.name + ".pdf")
 
-    build_pptx(pages, pptx_path)
-    print(f"已生成 PPTX: {pptx_path}（{len(pages)} 页）")
+    with tempfile.TemporaryDirectory() as work_dir:
+        pages = normalize_pages(pages, work_dir)
 
-    try:
-        build_pdf(pages, pdf_path, args.dpi)
-        print(f"已生成 PDF : {pdf_path}")
-    except Exception as e:  # PDF 失败不应阻断 pptx 交付
-        print(f"警告：PDF 生成失败（{e}）。PPTX 已正常生成。")
+        build_pptx(pages, pptx_path)
+        print(f"已生成 PPTX: {pptx_path}（{len(pages)} 页）")
+
+        try:
+            build_pdf(pages, pdf_path, args.pdf_quality)
+            print(f"已生成 PDF : {pdf_path}")
+        except Exception as e:  # PDF 失败不应阻断 pptx 交付
+            print(f"警告：PDF 生成失败（{e}）。PPTX 已正常生成。")
 
 
 if __name__ == "__main__":
